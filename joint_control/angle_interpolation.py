@@ -24,26 +24,64 @@ from pid import PIDAgent
 from keyframes import hello
 
 
+def lerp(a, b, t):
+    return (1 - t) * a + t * b
+
+
+def ilerp(a, b, v):
+    return (v - a) / (b - a)
+
+
+def bezier(t, p0, p1, p2, p3):
+    return lerp(lerp(lerp(p0, p1, t), lerp(p1, p2, t), t), lerp(lerp(p1, p2, t), lerp(p2, p3, t), t), t)
+
+
 class AngleInterpolationAgent(PIDAgent):
     def __init__(self, simspark_ip='localhost',
                  simspark_port=3100,
                  teamname='DAInamite',
                  player_id=0,
                  sync_mode=True):
-        super(AngleInterpolationAgent, self).__init__(simspark_ip, simspark_port, teamname, player_id, sync_mode)
+        super(AngleInterpolationAgent, self).__init__(
+            simspark_ip, simspark_port, teamname, player_id, sync_mode)
         self.keyframes = ([], [], [])
+        self.startingTime = None
+        self.animation_speed = 1.0
+        self.animation_done = True
 
     def think(self, perception):
         target_joints = self.angle_interpolation(self.keyframes, perception)
-        target_joints['RHipYawPitch'] = target_joints['LHipYawPitch'] # copy missing joint in keyframes
+        target_joints['RHipYawPitch'] = target_joints.get(
+            'LHipYawPitch', 0)  # copy missing joint in keyframes
         self.target_joints.update(target_joints)
         return super(AngleInterpolationAgent, self).think(perception)
 
     def angle_interpolation(self, keyframes, perception):
         target_joints = {}
-        # YOUR CODE HERE
+        names, times, keys = keyframes
 
+        if self.startingTime is None:
+            self.startingTime = perception.time
+        dt = (perception.time - self.startingTime) * self.animation_speed
+        for i in range(len(names)):
+            name = names[i]
+            time = times[i]
+            key = keys[i]
+            for k in range(len(time)):
+                if time[k] > dt:
+                    if k == 0:
+                        target_joints[name] = key[k][0]
+                    else:
+                        t = ilerp(time[k - 1], time[k], dt)
+                        p0 = key[k - 1][0]
+                        p1 = key[k - 1][2][1] * key[k - 1][2][2] + key[k - 1][0]
+                        p2 = key[k][1][1] * key[k][1][2] + key[k][0]
+                        p3 = key[k][0]
+                        target_joints[name] = bezier(t, p0, p1, p2, p3)
+                    break
+        self.animation_done = target_joints == {}
         return target_joints
+
 
 if __name__ == '__main__':
     agent = AngleInterpolationAgent()
